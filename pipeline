@@ -1,0 +1,121 @@
+----------------------------
+     Genetic Diversity
+----------------------------
+
+
+...
+
+----------------------------
+           PCA
+----------------------------
+
+
+...
+
+----------------------------
+           Fst
+----------------------------
+
+...
+
+----------------------------
+         Admixture
+----------------------------
+
+...
+
+----------------------------
+         BayesAss
+----------------------------
+
+...
+
+----------------------------
+         BayesScan
+----------------------------
+
+...
+
+----------------------------
+         PCAdapt
+----------------------------
+
+# LD prune before pcadapt
+library(pcadapt)
+
+cd /home/tensenl/miniconda3/envs/genome_extract/bin/plink
+
+/home/tensenl/miniconda3/envs/genome_extract/bin/plink --vcf snps_dataset_ld_filtered_noFID.vcf --recode A --out WD
+
+# Then in R:
+
+geno <- read.table("WD.raw", header = TRUE)
+X <- as.matrix(geno[, -(1:6)])
+
+x <- read.pcadapt(X, type = "pcadapt")  # treat it as a pre-loaded object
+
+pc <- pcadapt(x, K = 3)
+
+# scree plot:
+plot(pc, option = "screeplot")
+
+# Rule of thumb:
+# Take PCs before the elbow
+# Often K = 2–5 for SNP panels
+# Don’t overfit — too many PCs = loss of power
+
+# Then rerun:
+pc <- pcadapt("data.bed", K = 3)
+
+# Check structure
+plot(pc, option = "scores", i = 1, j = 2)
+
+# Identify candidate SNPs
+plot(pc, option = "manhattan")
+
+# Extract results:
+pvalues <- pc$pvalues
+qvalues <- p.adjust(pvalues, method = "fdr")
+sig_snps <- which(qvalues < 0.05)
+length(sig_snps)
+
+----------------------------
+       Tajima's D
+----------------------------
+
+vcftools --vcf snps_dataset_ld_filtered_noFID.vcf --TajimaD 1000
+
+# read the VCFtools TajimaD output
+tajima <- read.table("out.Tajima.D", header = TRUE, sep="\t", stringsAsFactors=FALSE)
+
+# check the first few rows
+head(tajima)
+str(tajima)
+
+# remove windows with NaN TajimaD
+tajima_clean <- tajima[is.finite(tajima$TajimaD), ]
+
+# plot using BIN_START as x-axis
+plot(tajima_clean$BIN_START, tajima_clean$TajimaD,
+     type='p', pch=20, cex=0.6,
+     col="grey50",                      # grey points
+     xlab='Genomic position (bp)',
+     ylab="Tajima's D",
+     main="Sliding-window Tajima's D")
+abline(h=0, col="blue", lty=2, lwd=2) 
+
+# distribution
+hist(tajima_clean$TajimaD,
+     breaks=50,              # number of bins
+     col="grey70",
+     border="white",
+     xlab="Tajima's D",
+     main="Distribution of Tajima's D values")
+abline(v=0, col="blue", lwd=2, lty=2)  # neutral line
+
+#density plot
+plot(density(tajima_clean$TajimaD, na.rm=TRUE),
+     main="Density of Tajima's D values",
+     xlab="Tajima's D", ylab="Density",
+     col="grey50", lwd=2)
+abline(v=0, col="blue", lty=2, lwd=2)
