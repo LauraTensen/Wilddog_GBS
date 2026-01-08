@@ -2,15 +2,89 @@
      Genetic Diversity
 ----------------------------
 
+SUBSET_VCF=wilddog.vcf.gz
+OUT=WD_diversity
 
-...
+# calculate allele frequency
+vcftools --vcf $SUBSET_VCF --freq2 --out $OUT --max-alleles 2
+
+# calculate mean depth
+vcftools --gzvcf $SUBSET_VCF --depth --out $OUT
+
+# calculate mean depth per site
+vcftools --gzvcf $SUBSET_VCF --site-mean-depth --out $OUT
+
+# calculate site quality
+vcftools --gzvcf $SUBSET_VCF --site-quality --out $OUT
+
+# calculate proportion of missing data per individual
+vcftools --gzvcf $SUBSET_VCF --missing-indv --out $OUT
+
+# calculate proportion of missing data per site
+vcftools --gzvcf $SUBSET_VCF --missing-site --out $OUT
+
+# calculate heterozygosity and inbreeding per individual
+vcftools --gzvcf $SUBSET_VCF --het --out $OUT
 
 ----------------------------
            PCA
 ----------------------------
 
+# perform linkage pruning
+plink --vcf data.vcf.gz --double-id --allow-extra-chr --set-missing-var-ids @:# --indep-pairwise 50 10 0.1 --out data
 
-...
+# perform PCA
+plink --vcf data.vcf.gz --double-id --allow-extra-chr --set-missing-var-ids @:# --extract data.prune.in --make-bed --pca --out Data
+
+# make linkage pruned dat filter
+plink --vcf Data.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# --extract MTP_pruned.prune.in --make-bed --out WEST_pruned
+plink --vcf Data.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# --extract KNP_pruned.prune.in --make-bed --out SEAST_pruned
+plink --vcf Data.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# --extract FRM_pruned.prune.in --make-bed --out NEAST_pruned
+
+# Plotting
+# open your eigenvec in a excel to add a 'ind' and 'pop' column. Export as eigenvec.csv file and use that as your new vector file 
+
+library(tidyverse)
+
+setwd("C:/Program Files/R/R-4.3.1/library/dplyr")
+
+# read in data
+pca <- read_table("eigenvec.csv", col_names = FALSE)
+eigenval <- scan("data.eigenval")
+
+pca <- read_table("wilddog_out.eigenvec", col_names = FALSE)
+eigenval <- scan("wilddog_out.eigenval")
+
+# remove nuisance column
+pca <- pca[,-1]
+
+# set names
+names(pca)[1] <- "ind"
+names(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-1))
+
+# sort out the pops
+pop <- rep(NA, length(pca$ind))
+pop[grep("WCP", pca$ind)] <- "MTP"
+pop[grep("MPL", pca$ind)] <- "KNP"
+pop[grep("NMB", pca$ind)] <- "NFRM"
+
+# remake data.frame
+pca <- as.tibble(data.frame(pca, pop))
+
+# first convert to percentage variance explained
+pve <- data.frame(PC = 1:16, pve = eigenval/sum(eigenval)*100)
+
+a <- ggplot(pve, aes(PC, pve)) + geom_bar(stat = "identity")
+a + ylab("Percentage variance explained") + theme_light()
+
+# calculate the cumulative sum of the percentage variance explained
+cumsum(pve$pve)
+
+# plot pca
+b <- ggplot(pca, aes(PC1, PC2, col = pop, shape = loc)) + geom_point(size = 3)
+b <- b + scale_colour_manual(values = c("red", "blue"))
+b <- b + coord_equal() + theme_light()
+b + xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) + ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)"))
 
 ----------------------------
            Fst
@@ -28,7 +102,72 @@
          BayesAss
 ----------------------------
 
-...
+Steps
+
+1. Installation
+git clone https://github.com/stevemussmann/BayesAss3-SNPs
+
+2. Convert VCF data to Ba3 file
+bcf2ba3 ShortBayes.vcf.gz > myfile.ba3
+
+#Once the map file has been created (assuming it is named myfile.map) you can create a new ba3 file with the population names assigned:
+>./poptrans myfile.map myfile.ba3 > myfile_withpops.ba3
+
+3. Run BA3SNP.sh
+
+#  PGDSpider
+# To run ADMIXTURE or BayesAss, we need to provide an input file. The program PGDSpider is able to convert .vcf files to (amongst others) .geno format, which ADMIXTURE can read, or Immanc format (.inp), which BayesAss can read. This requires 4 files:
+
+1) The input data file in .vcf format (generated with MAF filter)
+
+2) A text file with sample IDs and the population designations. For instance:
+Ind1       Pop3
+Ind2       Pop1
+Ind3       Pop2
+
+3) A settings file (.spid) that tells PGDSpider how to process the data:
+# This can be retrieved from PGDSpider2 GUI. Fill in all the questions and then press ‘Create/Edit SPID file')
+# You can download PGDspider here: PGDSpider version 2.1.1.5 (unibe.ch)
+
+4) A bash script that runs the program with all the above settings specified (dont forget to load the Java module):
+java -Xmx1024m -Xms512m -jar /services/tools/pgdspider/2.1.1.5 -inputfile /home/projects/ku_00287/people/lauten/Common/VCF/Chromrenam.vcf -inputformat VCF -outputfile /home/projects/ku_00287/people/lauten/PGD/Output.inp -outpuformat IMMANC -spid /home/projects/ku_00287/people/lauten/PGD/Info.spid
+
+# STARTUP
+BA3-SNPS -i 10000000 -b 1000000 -n 1000 -s 1000 -v -g -t -m0.07 -a0.20 -f0.40 -l 7 -F Output.inp -o Bayes1.txt
+BA3-SNPS -i 10000000 -b 1000000 -n 1000 -s 100 -v -g -t -m0.07 -a0.20 -f0.40 -l 7 -F Output.inp -o Bayes1.txt
+BA3-SNPS -i 10000000 -b 1000000 -n 1000 -s 1 -v -g -t -m0.07 -a0.20 -f0.40 -l 7 -F Output.inp -o Bayes1.txt
+
+# INFORMATION ON ACCEPTANCE RATES
+Manual: "Acceptance rate: should be between 20-60%" (i.e. 0.2 - 0.6)
+% accepted: (0.31, 0.25, 0.66, 0.76, 0.60)
+# These 5 numbers represent: migration rate, individual migrant ancestry, allele frequency, inbreeding coefficent, missing genotypes
+# To change mixing paramters: -m, XX, -a, -f, XX (the XX are less important an cannot be adjusted)
+# Manual: "0.66 and 0.76 are too high, change by including: -a0.30 -f 0.30"
+(the higher these values are set, the lower the acceptance rates; try out a few options and let them run for a while to see how they develop)
+
+# FINAL RUN
+
+# Import data
+BAY_IN=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayesAss/bayesass_immanc.inp
+BAY_OUT=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayesAss/bayesass.txt
+
+# follow https://github.com/brannala/BA3/wiki
+# Run BayesAss: first run with default mixing parameters (0.1)
+BA3SNP -v -t -g -u -o $BAY_OUT $BAY_IN
+
+# logP(M): -159.72 logL(G): -624065.01 logL: -624224.73 % done: [0.02] % accepted: (0.52, 0.00, 0.92, 0.08, 0.83)
+#use different runs with varying parameters to find convergence
+# BA3SNP -v -t -g -u -s 1 -a 0.3 -f 0.05 bayesass_immanc.inp
+# logP(M): -162.63 logL(G): -624885.09 logL: -625047.72 % done: [0.02] % accepted: (0.51, 0.00, 0.60, 0.15, 0.83)
+# BA3SNP -v -t -g -u -s 2 -a 0.4 -f 0.01 bayesass_immanc.inp
+# logP(M): -157.70 logL(G): -625346.17 logL: -625503.87 % done: [0.02] % accepted: (0.53, 0.00, 0.48, 0.61, 0.82)
+# BA3SNP -v -t -g -u -s 3 -a 0.4 -f 0.03 bayesass_immanc.inp
+# logP(M): -157.91 logL(G): -625360.83 logL: -625518.74 % done: [0.02] % accepted: (0.52, 0.00, 0.48, 0.25, 0.82)
+# BA3SNP -v -t -g -u -s 4 -a 0.4 -f 0.02 bayesass_immanc.inp
+# logP(M): -159.73 logL(G): -625523.18 logL: -625682.91 % done: [0.02] % accepted: (0.53, 0.00, 0.47, 0.36, 0.83)
+
+# final run for further analyses
+BA3SNP -v -i 10000000 -b 1000000 -n 1000 -t -g -u -s 100 -a 0.4 -f 0.02 -o $BAY_OUT $BAY_IN
 
 ----------------------------
          BayesScan
