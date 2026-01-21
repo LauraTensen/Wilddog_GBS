@@ -1,6 +1,36 @@
-----------------------------
-     Genetic Diversity
-----------------------------
+#----------------------------
+  # Mapping & variant calling
+#----------------------------
+
+module load snakemake/8.4.2
+
+#####################################
+# make files compatible with workflow
+#####################################
+
+# put all reads in their own sample folder:
+cd  /dir || exit
+
+# Llop over fastq.gz files in current directory
+for file in *.fastq.gz; do
+    # extract sample name (before 1st underscore)
+    sample=$(echo "$file" | cut -d'_' -f1)
+
+    # create a directory per sample (if it doesn't already exist)
+    mkdir -p "$sample"
+
+    # move the file its directory
+    mv "$file" "$sample/"
+done
+
+
+# snakefile Mapping_VariantCalling in separate file
+snakemake --snakefile Snakefile_MappingVariantCalling --cores 40 -p -j 4 --rerun-incomplete --rerun-triggers mtime --resources mem=190000 
+
+
+#----------------------------
+     # Genetic Diversity
+#----------------------------
 
 module load perl/5.36.1
 module load vcftools/0.1.16
@@ -29,9 +59,9 @@ vcftools --gzvcf $SUBSET_VCF --missing-site --out $OUT
 # calculate heterozygosity and inbreeding per individual
 vcftools --gzvcf $SUBSET_VCF --het --out $OUT
 
-----------------------------
-           PCA
-----------------------------
+#----------------------------
+          # PCA
+#----------------------------
 
 module load perl/5.36.1
 module load plink2/1.90beta7
@@ -49,7 +79,7 @@ plink --vcf Data.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# --e
 plink --vcf Data.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# --extract FRM_pruned.prune.in --make-bed --out NEAST_pruned
 
 # Plotting
-# open your eigenvec in a excel to add a 'ind' and 'pop' column. Export as eigenvec.csv file and use that as your new vector file 
+# open eigenvec in a excel to add a 'ind' and 'pop' column --> export as eigenvec.csv file to use as new vector file 
 
 library(tidyverse)
 
@@ -78,13 +108,13 @@ pop[grep("NMB", pca$ind)] <- "NFRM"
 # remake data.frame
 pca <- as.tibble(data.frame(pca, pop))
 
-# first convert to percentage variance explained
+# convert to percentage variance explained
 pve <- data.frame(PC = 1:16, pve = eigenval/sum(eigenval)*100)
 
 a <- ggplot(pve, aes(PC, pve)) + geom_bar(stat = "identity")
 a + ylab("Percentage variance explained") + theme_light()
 
-# calculate the cumulative sum of the percentage variance explained
+# calculate cumulative sum of percentage variance explained
 cumsum(pve$pve)
 
 # plot pca
@@ -93,15 +123,15 @@ b <- b + scale_colour_manual(values = c("red", "blue"))
 b <- b + coord_equal() + theme_light()
 b + xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) + ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)"))
 
-----------------------------
-           Fst
-----------------------------
+#----------------------------
+           # Fst
+#----------------------------
 
 module load perl/5.36.1
 module load vcftools/0.1.16
 module load bcftools/1.20
 
-#check sample names
+# check sample names
 bcftools query -l Wilddogsvcf.gz > list
 
 # extract sample names for MPU
@@ -124,68 +154,70 @@ vcftools --gzvcf ${VCF} \
 --weir-fst-pop FRM \
 --out ./KNP_FRM
 
-----------------------------
-         Admixture
-----------------------------
+#----------------------------
+         # Admixture
+#----------------------------
 
 module load admixture/1.3.0
 
-# Define the necessary variables
-BED_FILE="/home/projects/ku_00287/people/lauten/Temp/population-mapping/wilddogs_out/plink/snps_dataset_ld_filtered.bed"  
-OUTPUT_DIR="/home/projects/ku_00287/people/lauten/Temp/population-mapping/wilddogs_out/ADMIXTURE"  # Define output directory
-LOG_DIR="/home/projects/ku_00287/people/lauten/Temp/population-mapping/wilddogs_out/ADMIXTURE"
+# define variables
+BED_FILE="/folder/snps_dataset_ld_filtered.bed"  
+# define output directory
+OUTPUT_DIR="/folder//wilddogs_out/ADMIXTURE" 
+LOG_DIR="/folder/wilddogs_out/ADMIXTURE"
 
-# Create output and log directories if they don't exist
+# create output & log directories if they don't exist
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$LOG_DIR"
 
-# Loop through different values of K and run ADMIXTURE with cross-validation, very fast (for 10 000 SNPs)
+# loop through different values of K & run ADMIXTURE with cross-validation
 for K in 1 2 3 4 5 6 7 8 9 10; do
     echo "Running ADMIXTURE for K=$K..."
     admixture --cv "$BED_FILE" $K -j8 | tee "$LOG_DIR/admixture_K${K}.out"
 done
 
-# Notify on completion
+# message when done
 echo "ADMIXTURE cross-validation completed for K=1 to K=10."
 
-----------------------------
-         BayesAss
-----------------------------
+#----------------------------
+         # BayesAss
+#----------------------------
 
 module load gcc/9.4.0
 module load openblas/0.3.6
 module load gsl/2.7
 module load brannala-ba3/3.0.5.7 
 
+#######
 # Steps
+#######
+#1. Installation
+#git clone https://github.com/stevemussmann/BayesAss3-SNPs
 
-1. Installation
-git clone https://github.com/stevemussmann/BayesAss3-SNPs
-
-2. Convert VCF data to Ba3 file
-bcf2ba3 ShortBayes.vcf.gz > myfile.ba3
+#2. Convert VCF data to Ba3 file
+#bcf2ba3 ShortBayes.vcf.gz > myfile.ba3
 
 #Once the map file has been created (assuming it is named myfile.map) you can create a new ba3 file with the population names assigned:
->./poptrans myfile.map myfile.ba3 > myfile_withpops.ba3
+#>./poptrans myfile.map myfile.ba3 > myfile_withpops.ba3
 
-3. Run BA3SNP.sh
+#3. Run BA3SNP.sh
 
 #  PGDSpider
 # To run ADMIXTURE or BayesAss, we need to provide an input file. The program PGDSpider is able to convert .vcf files to (amongst others) .geno format, which ADMIXTURE can read, or Immanc format (.inp), which BayesAss can read. This requires 4 files:
 
-1) The input data file in .vcf format (generated with MAF filter)
+#1) The input data file in .vcf format (generated with MAF filter)
 
-2) A text file with sample IDs and the population designations. For instance:
-Ind1       Pop3
-Ind2       Pop1
-Ind3       Pop2
+#2) A text file with sample IDs and the population designations. For instance:
+#Ind1       Pop3
+#Ind2       Pop1
+#Ind3       Pop2
 
-3) A settings file (.spid) that tells PGDSpider how to process the data:
+#3) A settings file (.spid) that tells PGDSpider how to process the data:
 # This can be retrieved from PGDSpider2 GUI. Fill in all the questions and then press ‘Create/Edit SPID file')
 # You can download PGDspider here: PGDSpider version 2.1.1.5 (unibe.ch)
 
-4) A bash script that runs the program with all the above settings specified (dont forget to load the Java module):
-java -Xmx1024m -Xms512m -jar /services/tools/pgdspider/2.1.1.5 -inputfile /home/projects/ku_00287/people/lauten/Common/VCF/Chromrenam.vcf -inputformat VCF -outputfile /home/projects/ku_00287/people/lauten/PGD/Output.inp -outpuformat IMMANC -spid /home/projects/ku_00287/people/lauten/PGD/Info.spid
+#4) A bash script that runs the program with all the above settings specified (dont forget to load the Java module):
+java -Xmx1024m -Xms512m -jar /services/tools/pgdspider/2.1.1.5 -inputfile /folder/VCF/Chromrenam.vcf -inputformat VCF -outputfile /folder/PGD/Output.inp -outpuformat IMMANC -spid /folder/PGD/Info.spid
 
 # STARTUP
 BA3-SNPS -i 10000000 -b 1000000 -n 1000 -s 1000 -v -g -t -m0.07 -a0.20 -f0.40 -l 7 -F Output.inp -o Bayes1.txt
@@ -193,18 +225,20 @@ BA3-SNPS -i 10000000 -b 1000000 -n 1000 -s 100 -v -g -t -m0.07 -a0.20 -f0.40 -l 
 BA3-SNPS -i 10000000 -b 1000000 -n 1000 -s 1 -v -g -t -m0.07 -a0.20 -f0.40 -l 7 -F Output.inp -o Bayes1.txt
 
 # INFORMATION ON ACCEPTANCE RATES
-Manual: "Acceptance rate: should be between 20-60%" (i.e. 0.2 - 0.6)
-% accepted: (0.31, 0.25, 0.66, 0.76, 0.60)
+#$Manual: "Acceptance rate: should be between 20-60%" (i.e. 0.2 - 0.6)
+#% accepted: (0.31, 0.25, 0.66, 0.76, 0.60)
 # These 5 numbers represent: migration rate, individual migrant ancestry, allele frequency, inbreeding coefficent, missing genotypes
 # To change mixing paramters: -m, XX, -a, -f, XX (the XX are less important an cannot be adjusted)
 # Manual: "0.66 and 0.76 are too high, change by including: -a0.30 -f 0.30"
-(the higher these values are set, the lower the acceptance rates; try out a few options and let them run for a while to see how they develop)
+#(the higher these values are set, the lower the acceptance rates; try out a few options and let them run for a while to see how they develop)
 
+###########
 # FINAL RUN
+###########
 
 # Import data
-BAY_IN=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayesAss/bayesass_immanc.inp
-BAY_OUT=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayesAss/bayesass.txt
+BAY_IN=/folder/BayesAss/bayesass_immanc.inp
+BAY_OUT=/folder/BayesAss/bayesass.txt
 
 # follow https://github.com/brannala/BA3/wiki
 # Run BayesAss: first run with default mixing parameters (0.1)
@@ -224,9 +258,9 @@ BA3SNP -v -t -g -u -o $BAY_OUT $BAY_IN
 # final run for further analyses
 BA3SNP -v -i 10000000 -b 1000000 -n 1000 -t -g -u -s 100 -a 0.4 -f 0.02 -o $BAY_OUT $BAY_IN
 
-----------------------------
-         BayesScan
-----------------------------
+#----------------------------
+         # BayesScan
+#----------------------------
 
 module load jdk/20.0.2
 module load java/1.8.0
@@ -242,35 +276,35 @@ module load bayescan/2.1
 
 # VCF to Bayescan  file 
 #PGD_PROGRAM=/services/tools/pgdspider/2.1.1.5/PGDSpider2-cli.jar
-#VCF_IN=/home/projects/ku_00287/people/lauten/Temp/population-mapping/wilddogs_out/vcf_pruned/snps_dataset_ld_filtered_noFID.vcf
-#SPID_IN=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/info.spid
-#SPID_OUT=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/snps.geste
+#VCF_IN=/folder/wilddogs_out/vcf_pruned/snps_dataset_ld_filtered_noFID.vcf
+#SPID_IN=/folder/BayeScan/info.spid
+#SPID_OUT=/folder/BayeScan/snps.geste
 
 #java -Xmx1024m -Xms512m -jar $PGD_PROGRAM -inputfile $VCF_IN -outputfile $SPID_OUT -spid $SPID_IN
-#java -Xmx1024m -Xms512m -jar /services/tools/pgdspider/2.1.1.5/PGDSpider2-cli.jar -inputfile /home/projects/ku_00287/people/lauten/Temp/population-mapping/wilddogs_out/vcf_pruned/snps_dataset_ld_filtered_noFID.vcf -outputfile /home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/snps.geste -spid /home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/info.spid
+#java -Xmx1024m -Xms512m -jar /services/tools/pgdspider/2.1.1.5/PGDSpider2-cli.jar -inputfile /folder/wilddogs_out/vcf_pruned/snps_dataset_ld_filtered_noFID.vcf -outputfile /folder/BayeScan/snps.geste -spid /folder/BayeScan/info.spid
 # Gave up and used GUI
 
 ###########################################################
 # run bayescan                                            #
 ###########################################################
-KNP_FRM=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/snps_KNP_FRM 
-MTP_FRM=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/snps_MTP_FRM
-MTP_KNP=/home/projects/ku_00287/people/lauten/Temp/population-mapping/BayeScan/snps_MTP_KNP
+KNP_FRM=/folder/BayeScan/snps_KNP_FRM 
+MTP_FRM=/folder/BayeScan/snps_MTP_FRM
+MTP_KNP=/folder/BayeScan/snps_MTP_KNP
 
 bayescan $KNP_FRM
 bayescan $MTP_FRM
 bayescan $MTP_KNP
 
-----------------------------
-         PCAdapt
-----------------------------
+#----------------------------
+         # PCAdapt
+#----------------------------
 
 # LD prune before pcadapt
 library(pcadapt)
 
-cd /home/tensenl/miniconda3/envs/genome_extract/bin/plink
+cd /folder/miniconda3/envs/genome_extract/bin/plink
 
-/home/tensenl/miniconda3/envs/genome_extract/bin/plink --vcf snps_dataset_ld_filtered_noFID.vcf --recode A --out WD
+/folder/miniconda3/envs/genome_extract/bin/plink --vcf snps_dataset_ld_filtered_noFID.vcf --recode A --out WD
 
 # Then in R:
 
@@ -304,9 +338,9 @@ qvalues <- p.adjust(pvalues, method = "fdr")
 sig_snps <- which(qvalues < 0.05)
 length(sig_snps)
 
-----------------------------
-       Tajima's D
-----------------------------
+#----------------------------
+      # Tajima's D
+#----------------------------
 
 vcftools --vcf snps_dataset_ld_filtered_noFID.vcf --TajimaD 1000
 
@@ -344,3 +378,54 @@ plot(density(tajima_clean$TajimaD, na.rm=TRUE),
      xlab="Tajima's D", ylab="Density",
      col="grey50", lwd=2)
 abline(v=0, col="blue", lty=2, lwd=2)
+
+#----------------------------
+      # MHC extraction
+#----------------------------
+
+module load samtools/1.20
+module load perl
+module load ncbi-blast/2.16.0+
+module load seqkit/2.4.0
+
+# convert aligned reads to fasta
+# setup
+READS=/folder/bam_files/sample_sort.bam
+FASTA=/folder/fasta_reads/sample.fasta
+
+# convert aligned reads to fasta
+samtools fasta -@ 8 -F 4 -o $FASTA $READS
+#-@ 8: use 8 threads
+#-F 4: filter out unmapped segments
+#-o: set output file
+
+# remove duplicates
+seqkit rmdup -n -o $FASTA.nodup $FASTA
+
+# create blast database
+makeblastdb -in $FASTA.nodup -title my_wgs_db_sample -dbtype nucl -out database/my_wgs_db_sample -parse_seqids
+#-in: specify fasta aligned reads as input for database
+#-title: specify database title
+#-dbtype nucl: use nucleotide sequences as molecule type
+#-out: specify output database name
+
+echo "database created"
+
+# blast search---------------------------------------------------------------------------------------
+MHC_REF=/home/projects/ku_00287/people/lauten/Temp/WGS/MHC/MHC.fasta
+
+# very fast 
+blastn -query $MHC_REF -db database/my_wgs_db_sample -out blast_out/mhc_hits_sample.txt -evalue 1e-3 -outfmt 6 -num_threads 40
+#-outfmt 6: tabular output format
+
+echo "blast done"
+
+
+# extract MHC from fasta
+# extract 2nd column from blast output (seq ID), sort them, remove duplicates, save unique IDs
+awk '{print $2}' blast_out/mhc_hits_sample.txt | sort | uniq > blast_out/mhc_read_ids_sample.txt
+
+# extract MHC sequences from the fasta: option 2
+blastdbcmd -db database/my_wgs_db_sample -entry_batch blast_out/mhc_read_ids_sample.txt -out mhc_out/mhc_sequences_sample.fasta
+
+echo "mhc extracted"
